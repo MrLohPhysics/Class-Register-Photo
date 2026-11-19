@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Class Photo Register</title>
+<style>
+:root{--bg:#f4f6f8;--fg:#14263d;--card:#fff;--line:#d5dbe3;--go:#1f7a52;--warn:#b3402a;color-scheme:light dark}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1824;--fg:#e8edf3;--card:#18263a;--line:#2b3c55;--go:#3fb383;--warn:#e07a63}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:16px;padding-top:max(16px,env(safe-area-inset-top))}
+main{max-width:480px;margin:0 auto}
+h1{font-size:1.3rem;margin:0 0 4px}
+p{margin:6px 0}
+.s{display:none}.s.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:12px 0}
+input[type=text],input[type=file]{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+label{display:block;font-weight:600;margin:10px 0 4px}
+button,a.btn{display:block;width:100%;font:inherit;font-weight:600;padding:14px;margin:8px 0;border:0;border-radius:10px;background:var(--fg);color:var(--bg);text-align:center;text-decoration:none}
+button.go{background:var(--go);color:#fff}button.alt{background:transparent;color:var(--fg);border:1px solid var(--line)}
+button.warn{background:transparent;color:var(--warn);border:1px solid var(--warn)}
+.who{font-size:1.15rem;font-weight:700}.meta{opacity:.7;font-size:.9rem}
+video{width:100%;aspect-ratio:3/4;object-fit:cover;background:#000;border-radius:10px}
+#pv{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:10px}
+[hidden]{display:none!important}
+.err{color:var(--warn);font-weight:600}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--go);width:0}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.li{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.li img,.li .ph{width:42px;height:56px;border-radius:6px;object-fit:cover;background:var(--line);flex:none}
+.li .t{flex:1;min-width:0}.li button{width:auto;margin:0;padding:8px 12px}
+</style></head><body><main>
+
+<section id="s1" class="s on">
+<h1>Class Photo Register</h1>
+<p class="meta">Runs only on this phone. Nothing is uploaded or saved to the gallery.</p>
+<div class="card">
+<label for="cls">Class name</label><input type="text" id="cls" placeholder="e.g. 3 Integrity">
+<label for="file">Class register (.xlsx or .csv)</label><input type="file" id="file" accept=".xlsx,.csv">
+<p class="meta">Needs one column for register number and one for name. A header row with “Name” helps.</p>
+<p class="err" id="err"></p>
+</div>
+<button class="go" id="start">Load register</button>
+</section>
+
+<section id="s2" class="s">
+<div class="bar"><i id="pb"></i></div>
+<p class="meta" id="cnt"></p>
+<p class="who" id="who"></p>
+<video id="v" playsinline muted autoplay></video>
+<img id="pv" alt="Photo just taken" hidden>
+<button class="go" id="snap">Take photo</button>
+<button class="go" id="nxt" hidden>Next student</button>
+<button class="alt" id="rt" hidden>Retake this photo</button>
+<div class="row" id="r1"><button class="warn" id="skip">Absent: skip</button><button class="alt" id="back">Previous student</button></div>
+<button class="alt" id="flip">Switch camera</button>
+<button class="alt" id="rev">Review and retake photos</button>
+<p class="err" id="err2"></p>
+</section>
+
+<section id="s3" class="s">
+<h1>All done</h1>
+<p id="sum"></p>
+<a class="btn go" id="dl" download="class-photos.pdf">Save PDF</a>
+<button class="alt" id="again">Review and retake photos</button>
+<button class="warn" id="clear">Clear everything from this phone</button>
+</section>
+<section id="s4" class="s">
+<h1>Review photos</h1>
+<p class="meta">Tap Retake to redo a photo, or Take photo for a student who was absent earlier.</p>
+<div id="list"></div>
+<button class="go" id="fin">Finish and make PDF</button>
+<button class="alt" id="cont">Back to camera</button>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let St=[],P=[],I=0,stream=null,facing='environment',url=null,single=false,done=false,urls=[],tmp=null,shot=false,pu=null;
+const show=n=>{for(const s of document.querySelectorAll('.s'))s.classList.toggle('on',s.id==='s'+n)};
+
+/* ---------- read register ---------- */
+async function xlsx(buf){
+ const u=new Uint8Array(buf),dv=new DataView(buf),td=new TextDecoder();
+ let e=u.length-22;while(e>=0&&dv.getUint32(e,true)!==0x06054b50)e--;
+ if(e<0)throw 0;
+ let n=dv.getUint16(e+10,true),p=dv.getUint32(e+16,true);const F={};
+ for(let k=0;k<n;k++){
+  const m=dv.getUint16(p+10,true),cs=dv.getUint32(p+20,true),nl=dv.getUint16(p+28,true),xl=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lo=dv.getUint32(p+42,true);
+  const nm=td.decode(u.subarray(p+46,p+46+nl));
+  const ds=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true);
+  F[nm]=[m,u.subarray(ds,ds+cs)];p+=46+nl+xl+cl}
+ const get=async f=>{const[m,d]=F[f];if(!m)return td.decode(d);
+  return td.decode(await new Response(new Blob([d]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer())};
+ const X=t=>new DOMParser().parseFromString(t,'text/xml'),ss=[];
+ if(F['xl/sharedStrings.xml'])for(const si of X(await get('xl/sharedStrings.xml')).getElementsByTagName('si'))
+  ss.push([...si.getElementsByTagName('t')].map(t=>t.textContent).join(''));
+ const sh=Object.keys(F).filter(k=>/^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort()[0];
+ const rows=[];
+ for(const c of X(await get(sh)).getElementsByTagName('c')){
+  const m=/^([A-Z]+)(\d+)$/.exec(c.getAttribute('r')||'');if(!m)continue;
+  let ci=0;for(const ch of m[1])ci=ci*26+ch.charCodeAt(0)-64;ci--;
+  const t=c.getAttribute('t'),v=c.getElementsByTagName('v')[0];
+  const val=t==='inlineStr'?c.textContent:!v?'':t==='s'?ss[+v.textContent]:v.textContent;
+  (rows[m[2]-1]=rows[m[2]-1]||[])[ci]=val}
+ return rows.filter(Boolean)}
+
+function csv(t){return t.split(/\r?\n/).filter(l=>l.trim()).map(l=>{const o=[];let c='',q=0;
+ for(const ch of l){if(ch==='"')q=!q;else if(ch===','&&!q){o.push(c);c=''}else c+=ch}o.push(c);return o})}
+
+function pick(rows){
+ let ni=1,ri=0,from=0;const h=rows[0]||[];
+ const n=h.findIndex(x=>/name/i.test(x||''));
+ if(n>=0){ni=n;from=1;const r=h.findIndex((x,i)=>i!==n&&/reg|no\.?$|num|idx|index/i.test(x||''));ri=r>=0?r:(n===0?1:0)}
+ return rows.slice(from).map(r=>({reg:String(r[ri]??'').trim(),name:String(r[ni]??'').trim()})).filter(s=>s.name)}
+
+$('start').onclick=async()=>{
+ $('err').textContent='';const f=$('file').files[0];
+ if(!f){$('err').textContent='Choose the class register file first.';return}
+ try{
+  const rows=/\.csv$/i.test(f.name)?csv(await f.text()):await xlsx(await f.arrayBuffer());
+  St=pick(rows);if(!St.length)throw 0;
+ }catch(x){$('err').textContent='Could not read that file. Save the register as .csv and try again.';return}
+ P=new Array(St.length).fill(null);I=0;done=false;single=false;shot=false;tmp=null;
+ try{await cam();}catch(x){$('err').textContent='Camera blocked. Allow camera access for this page and try again.';return}
+ show(2);draw()};
+
+/* ---------- camera ---------- */
+async function cam(){
+ if(stream)stream.getTracks().forEach(t=>t.stop());
+ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1280}},audio:false});
+ $('v').srcObject=stream}
+$('flip').onclick=async()=>{facing=facing==='environment'?'user':'environment';try{await cam()}catch(x){}};
+
+function draw(){
+ const s=St[I];$('who').textContent=(s.reg?s.reg+'. ':'')+s.name;
+ $('cnt').textContent='Student '+(I+1)+' of '+St.length+(P[I]?' (photo taken)':'');
+ $('pb').style.width=(100*I/St.length)+'%';
+ $('skip').textContent=single?'Cancel':'Absent: skip';$('back').style.display=single?'none':'';ui()}
+function ui(){
+ $('v').hidden=shot;$('pv').hidden=!shot;
+ $('snap').hidden=shot;$('flip').hidden=shot;$('rev').hidden=shot;$('r1').hidden=shot;
+ $('nxt').hidden=!shot;$('rt').hidden=!shot;
+ $('nxt').textContent=single?'Save photo':'Next student'}
+
+async function next(){
+ if(single){single=false;return review()}
+ I++;if(I>=St.length)return finish();draw()}
+
+function review(){
+ if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+ urls.forEach(u=>URL.revokeObjectURL(u));urls=[];
+ const L=$('list');L.textContent='';
+ St.forEach((s,i)=>{
+  const d=document.createElement('div');d.className='li';let th;
+  if(P[i]){const u=URL.createObjectURL(new Blob([P[i]],{type:'image/jpeg'}));urls.push(u);th=document.createElement('img');th.src=u}
+  else{th=document.createElement('div');th.className='ph'}
+  const t=document.createElement('div');t.className='t';
+  t.textContent=(s.reg?s.reg+'. ':'')+s.name+(P[i]?'':' (no photo)');
+  const b=document.createElement('button');b.className='alt';b.textContent=P[i]?'Retake':'Take photo';
+  b.onclick=async()=>{I=i;single=true;try{await cam()}catch(x){}draw();show(2)};
+  d.append(th,t,b);L.append(d)});
+ $('cont').style.display=done?'none':'';show(4)}
+$('rev').onclick=review;$('again').onclick=review;$('fin').onclick=finish;
+$('cont').onclick=async()=>{try{await cam()}catch(x){}draw();show(2)};
+
+$('snap').onclick=async()=>{
+ const v=$('v'),W=v.videoWidth,H=v.videoHeight;if(!W||shot)return;shot=true;
+ let sw=W,sh=W/.75,sx=0,sy=(H-sh)/2;if(W/H>.75){sh=H;sw=H*.75;sy=0;sx=(W-sw)/2}
+ const c=document.createElement('canvas');c.width=360;c.height=480;
+ c.getContext('2d').drawImage(v,sx,sy,sw,sh,0,0,360,480);
+ const b=await new Promise(r=>c.toBlob(r,'image/jpeg',.82));
+ tmp=new Uint8Array(await b.arrayBuffer());
+ if(pu)URL.revokeObjectURL(pu);pu=URL.createObjectURL(new Blob([tmp],{type:'image/jpeg'}));
+ $('pv').src=pu;ui();$('cnt').textContent='Check the photo, then tap '+(single?'Save photo.':'Next student.')};
+$('nxt').onclick=()=>{if(!shot||!tmp)return;P[I]=tmp;tmp=null;shot=false;next()};
+$('rt').onclick=()=>{tmp=null;shot=false;draw()};
+$('skip').onclick=()=>{if(single){single=false;return review()}P[I]=null;next()};
+$('back').onclick=()=>{if(I>0){I--;draw()}};
+
+/* ---------- build PDF by hand (no libraries) ---------- */
+const A=s=>String(s).replace(/[^\x20-\x7E]/g,'?').replace(/([()\\])/g,'\\$1');
+function pdf(title){
+ const enc=new TextEncoder(),parts=[],offs=[];let len=0;
+ const w=d=>{const b=typeof d==='string'?enc.encode(d):d;parts.push(b);len+=b.length};
+ const obj=(id,f)=>{offs[id]=len;w(id+' 0 obj\n');f();w('\nendobj\n')};
+ const per=16,np=Math.max(1,Math.ceil(St.length/per)),img={};let nid=4;
+ St.forEach((s,i)=>{if(P[i])img[i]=nid++});
+ const base=nid,total=base-1+np*2;
+ w('%PDF-1.4\n');
+ obj(1,()=>w('<</Type/Catalog/Pages 2 0 R>>'));
+ obj(2,()=>w('<</Type/Pages/Count '+np+'/Kids['+Array.from({length:np},(_,p)=>(base+2*p+1)+' 0 R').join(' ')+']>>'));
+ obj(3,()=>w('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>'));
+ for(const i in img)obj(img[i],()=>{w('<</Type/XObject/Subtype/Image/Width 360/Height 480/ColorSpace/DeviceRGB/BitsPerComponent 8/Filter/DCTDecode/Length '+P[i].length+'>>\nstream\n');w(P[i]);w('\nendstream')});
+ for(let p=0;p<np;p++){
+  let c='BT /F1 13 Tf 30 815 Td ('+A(title)+') Tj ET\n';const xo=[];
+  for(let k=0;k<per;k++){const i=p*per+k;if(i>=St.length)break;
+   const x=30+(k%4)*133+14,y=650-Math.floor(k/4)*185,s=St[i];
+   if(img[i]){c+='q 105 0 0 140 '+x+' '+y+' cm /I'+img[i]+' Do Q\n';xo.push('/I'+img[i]+' '+img[i]+' 0 R')}
+   else c+='0.88 g '+x+' '+y+' 105 140 re f 0 g\nBT /F1 8 Tf '+(x+34)+' '+(y+68)+' Td (No photo) Tj ET\n';
+   c+='BT /F1 8 Tf '+x+' '+(y-11)+' Td ('+A(s.name.slice(0,24))+') Tj ET\nBT /F1 8 Tf '+x+' '+(y-21)+' Td (Reg No: '+A(s.reg)+') Tj ET\n'}
+  obj(base+2*p,()=>{w('<</Length '+enc.encode(c).length+'>>\nstream\n'+c+'endstream')});
+  obj(base+2*p+1,()=>w('<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents '+(base+2*p)+' 0 R/Resources<</Font<</F1 3 0 R>>/XObject<<'+xo.join(' ')+'>>>>>>'))}
+ const xr=len;let t='xref\n0 '+(total+1)+'\n0000000000 65535 f \n';
+ for(let i=1;i<=total;i++)t+=String(offs[i]).padStart(10,'0')+' 00000 n \n';
+ w(t+'trailer\n<</Size '+(total+1)+'/Root 1 0 R>>\nstartxref\n'+xr+'\n%%EOF');
+ return new Blob(parts,{type:'application/pdf'})}
+
+function finish(){
+ if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}
+ const n=P.filter(Boolean).length,t=($('cls').value.trim()||'Class')+' - Photo Register';
+ $('sum').textContent=n+' photos taken, '+(St.length-n)+' skipped. The PDF is made on this phone only.';
+ if(url)URL.revokeObjectURL(url);done=true;url=URL.createObjectURL(pdf(t));$('dl').href=url;
+ $('dl').download=(($('cls').value.trim()||'class').replace(/[^\w-]+/g,'-'))+'-photos.pdf';show(3)}
+
+$('clear').onclick=()=>{
+ if(url)URL.revokeObjectURL(url);url=null;St=[];P=[];I=0;urls.forEach(u=>URL.revokeObjectURL(u));urls=[];done=false;single=false;shot=false;tmp=null;if(pu)URL.revokeObjectURL(pu);pu=null;$('pv').removeAttribute('src');
+ $('dl').removeAttribute('href');$('file').value='';$('cls').value='';show(1)};
+</script></body></html>
